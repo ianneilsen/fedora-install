@@ -1,0 +1,275 @@
+---
+# dnf install ansible
+# ansible-playbook -K setup-fedora.yml
+- name: Setup Fedora 42 with Essential Software
+  hosts: localhost
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    # RPM Fusion repositories for additional codecs and software
+    rpmfusion_free_url: "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ ansible_distribution_major_version }}.noarch.rpm"
+    rpmfusion_nonfree_url: "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ ansible_distribution_major_version }}.noarch.rpm"
+    
+    # Brave browser repository
+    brave_repo_key_url: "https://brave-browser-rpm-release.s3.brave.com/brave-core.asc"
+    
+    # Visual Studio Code repository
+    vscode_repo_key_url: "https://packages.microsoft.com/keys/microsoft.asc"
+    
+  tasks:
+    # Update system first
+    - name: Update all packages
+      dnf:
+        name: "*"
+        state: latest
+        
+    # Enable RPM Fusion repositories for codecs and additional software
+    - name: Install RPM Fusion free repository
+      dnf:
+        name: "{{ rpmfusion_free_url }}"
+        state: present
+        disable_gpg_check: yes
+        
+    - name: Install RPM Fusion non-free repository
+      dnf:
+        name: "{{ rpmfusion_nonfree_url }}"
+        state: present
+        disable_gpg_check: yes
+        
+    # Install basic development and media packages
+    - name: Install basic packages from Fedora repos
+      dnf:
+        name:
+          - git
+          - terminator
+          - firefox
+          - vlc
+          - wget
+          - curl
+          - dnf-plugins-core
+          - htop
+          - vim
+          - net-tools
+        state: present
+        
+    # Install multimedia codecs for GoPro video support
+    #- name: Install multimedia codecs and GStreamer plugins
+    #  dnf:
+    #    name:
+         # - gstreamer1-plugins-base
+         # - gstreamer1-plugins-good
+         # - gstreamer1-plugins-bad-free
+         # - gstreamer1-plugins-bad-nonfree
+         # - gstreamer1-plugins-ugly
+         # - gstreamer1-libav
+         # - ffmpeg
+         # - x264
+         # - x265
+         # - libdvdcss
+    #    state: present
+        
+    # Add Brave browser repository
+    - name: Add Brave browser GPG key
+      rpm_key:
+        key: "{{ brave_repo_key_url }}"
+        state: present
+        
+    - name: Add Brave browser repository
+      yum_repository:
+        name: brave-browser
+        description: Brave Browser
+        baseurl: https://brave-browser-rpm-release.s3.brave.com/x86_64/
+        enabled: yes
+        gpgcheck: yes
+        gpgkey: "{{ brave_repo_key_url }}"
+        
+    - name: Install Brave browser
+      dnf:
+        name: brave-browser
+        state: present
+        
+    # Install Sublime Text
+    - name: Add Sublime Text GPG key
+      rpm_key:
+        key: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
+        state: present
+        
+    - name: Add Sublime Text repository
+      yum_repository:
+        name: sublime-text
+        description: Sublime Text - x86_64 - Stable
+        baseurl: https://download.sublimetext.com/rpm/stable/x86_64/
+        enabled: yes
+        gpgcheck: yes
+        gpgkey: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
+        
+    - name: Install Sublime Text
+      dnf:
+        name: sublime-text
+        state: present
+        
+    # Install Visual Studio Code
+    - name: Add Visual Studio Code GPG key
+      rpm_key:
+        key: "{{ vscode_repo_key_url }}"
+        state: present
+        
+    - name: Add Visual Studio Code repository
+      yum_repository:
+        name: vscode
+        description: Visual Studio Code
+        baseurl: https://packages.microsoft.com/yumrepos/vscode
+        enabled: yes
+        gpgcheck: yes
+        gpgkey: "{{ vscode_repo_key_url }}"
+        
+    - name: Install Visual Studio Code
+      dnf:
+        name: code
+        state: present
+        
+    # Configure VLC for better codec support
+    #- name: Install additional VLC codecs
+    #  dnf:
+    #    name:
+    #      - vlc-extras
+    #    state: present
+    #    ignore_errors: yes
+        
+    # Set up some useful aliases and configurations
+    - name: Create .bashrc aliases and history settings for current user
+      lineinfile:
+        path: "~/.bashrc"
+        line: "{{ item }}"
+        create: yes
+        mode: '0644'
+      loop:
+        - "alias ll='ls -alF'"
+        - "alias la='ls -A'"
+        - "alias l='ls -CF'"
+        - "alias grep='grep --color=auto'"
+        - "# Enhanced bash history settings"
+        - "export HISTSIZE=10000"
+        - "export HISTFILESIZE=10000"
+        - "export HISTTIMEFORMAT='%F %T '"
+        - "export HISTCONTROL=ignoredups:erasedups"
+        - "shopt -s histappend"
+        - "PROMPT_COMMAND='history -a'"
+      become: no
+      
+    # Ensure multimedia group packages are installed
+    - name: Install multimedia group packages
+      dnf:
+        name: "@multimedia"
+        state: present
+        
+    # Install hardware video acceleration (helpful for GoPro videos)
+    # - name: Install hardware video acceleration packages
+    #   dnf:
+    #     name:
+    #       - libva
+    #       - libva-utils
+    #       - intel-media-driver
+    #       - mesa-va-drivers
+    #     state: present
+    #     ignore_errors: yes
+
+# Install essential security tools
+    - name: Install security tools
+      dnf:
+        name:
+          - keepassxc
+          - nmap
+          - wireshark
+          - lynis
+        state: present
+
+# Configure firewalld (default Fedora firewall)
+    - name: Ensure firewalld is installed and running
+      systemd:
+        name: firewalld
+        enabled: yes
+        state: started
+        
+    - name: Set firewalld default zone to drop (deny all incoming)
+      firewalld:
+        zone: drop
+        state: enabled
+        permanent: yes
+        immediate: yes
+        
+    - name: Remove all services from public zone
+      firewalld:
+        zone: public
+        service: "{{ item }}"
+        permanent: yes
+        immediate: yes
+        state: disabled
+      loop:
+        - ssh
+        - dhcpv6-client
+        - cockpit
+      ignore_errors: yes
+
+    # Final system update
+    - name: Final system update
+      dnf:
+        name: "*"
+        state: latest
+        
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+# Post-installation information
+- name: Display installation summary
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Show completion message
+      debug:
+        msg:
+          - "=== Installation Complete ==="
+          - "Installed software:"
+          - "  - VLC (with multimedia codecs for GoPro videos)"
+          - "  - Git"
+          - "  - Terminator terminal"
+          - "  - Firefox"
+          - "  - Brave browser"
+          - "  - Sublime Text"
+          - "  - Visual Studio Code"
+          - "  - htop (system monitor)"
+          - "  - vim (text editor)"
+          - "  - netstat (network utilities via net-tools)"
+          - ""
+          - "GoPro video support includes:"
+          - "  - H.264/H.265 codecs"
+          - "  - FFmpeg with full codec support"
+          - "  - Hardware acceleration drivers"
+          - ""
+          - "To run this playbook:"
+          - "  ansible-playbook -K setup-fedora.yml"
+          - ""
+          - "Note: You may need to reboot for all changes to take effect."
+
+
+## INSTALL LATER
+## npm and claude code cli
+# Install Node Version Manager (NVM) and Node.js
+# This is useful for managing Node.js versions and installing npm packages.
+# Uncomment the following lines to install NVM and Node.js
+# Note: This requires curl to be installed.
+# curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+# npm package manager for using claude code cli
+# add to bashrc and reload
+#export NVM_DIR="$HOME/.nvm"
+#[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+#nvm install --lts
+#nvm install 22        # Example: latest Node 22.x
+#nvm use 22
+
+
+
+
