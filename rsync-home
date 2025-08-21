@@ -1,0 +1,1 @@
+rsync -avHAXS --progress --numeric-ids --exclude-from=/home/$USER/.rsync-exclude /home/$USER/ /path/to/backup/destination/
