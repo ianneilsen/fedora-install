@@ -51,8 +51,9 @@
           - htop
           - vim
           - net-tools
-          - ntop
-          - vtop
+          - nvtop
+          - iftop
+          - iotop-c #now has sec boundaries to run as root only - set net-admin is you want to use sudo
         state: present
         
     # Install multimedia codecs for GoPro video support
