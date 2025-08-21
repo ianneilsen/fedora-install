@@ -1,0 +1,12 @@
+.cache/
+.thumbnails/
+.local/share/Trash/
+.gvfs/
+.mozilla/firefox/*/Cache/
+.mozilla/firefox/*/cache2/
+.config/google-chrome/*/Cache/
+.config/chromium/*/Cache/
+*.tmp
+*.swp
+*~
+.DS_Store
