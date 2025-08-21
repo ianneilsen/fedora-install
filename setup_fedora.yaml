@@ -51,6 +51,8 @@
           - htop
           - vim
           - net-tools
+          - ntop
+          - vtop
         state: present
         
     # Install multimedia codecs for GoPro video support
