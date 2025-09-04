@@ -228,6 +228,38 @@
       systemd:
         daemon_reload: yes
 
+# configure ssh dir on fresh installs.
+    - name: check and create .ssh directory exists
+      file:
+        path: "{{ ansible_env.HOME }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
+
+    - name: Set perms on .ssh dir
+      file:
+        path: "{{ ansible_env.HOME }}/.ssh"
+        mode: '0700'
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
+
+    - name: Set perms on all .ssh (private keys, config, etc.)
+      shell: chmod 600 {{ ansible_env.HOME }}/.ssh/*
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Set public key permissions (if any .pub files exist)
+      shell: chmod 644 {{ ansible_env.HOME }}/.ssh/*.pub
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Verify .ssh directory permissions
+      stat:
+        path: "{{ ansible_env.HOME }}/.ssh"
+      register: ssh_dir_stat
+
+
 # Post-installation information
 - name: Display installation summary
   hosts: localhost
