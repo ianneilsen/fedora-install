@@ -259,6 +259,27 @@
         path: "{{ ansible_env.HOME }}/.ssh"
       register: ssh_dir_stat
 
+# set git global
+    - name: Configure Git global user email
+      git_config:
+        name: user.email
+        scope: global
+        value: "ian.neilsen@gmail.com"
+
+    - name: Configure Git global user name
+      git_config:
+        name: user.name
+        scope: global
+        value: "ianneilsen"
+
+    - name: Verify Git configuration
+      shell: git config --global --list | grep user
+      register: git_user_config
+      changed_when: false
+
+    - name: Display Git user configuration
+      debug:
+        msg: "{{ git_user_config.stdout_lines }}"
 
 # Post-installation information
 - name: Display installation summary
