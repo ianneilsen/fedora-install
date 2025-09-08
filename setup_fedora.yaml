@@ -58,6 +58,7 @@
           - perf
           - ripgrep # faster grep
           - fzf # fuzzy finder
+          - ShellCheck #https://github.com/koalaman/shellcheck#installing
         state: present
         
     # Install multimedia codecs for GoPro video support
