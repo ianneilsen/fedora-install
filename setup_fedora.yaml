@@ -42,7 +42,7 @@
       dnf:
         name:
           - git
-          - terminator
+          - terminator #only the best terminal
           - firefox
           - vlc
           - wget
@@ -50,11 +50,14 @@
           - dnf-plugins-core
           - htop
           - vim
+          - neovim #cause sometimes you just have to
           - net-tools
           - nvtop
           - iftop
           - iotop-c #now has sec boundaries to run as root only - set net-admin is you want to use sudo
           - perf
+          - ripgrep # faster grep
+          - fzf # fuzzy finder
         state: present
         
     # Install multimedia codecs for GoPro video support
