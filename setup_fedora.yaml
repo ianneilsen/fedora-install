@@ -3,46 +3,48 @@
 # ansible-playbook -K setup-fedora.yml
 - name: Setup Fedora 42 with Essential Software
   hosts: localhost
-  become: yes
-  gather_facts: yes
-  
+  become: true
+  gather_facts: true
+
   vars:
     # RPM Fusion repositories for additional codecs and software
     rpmfusion_free_url: "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ ansible_distribution_major_version }}.noarch.rpm"
     rpmfusion_nonfree_url: "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ ansible_distribution_major_version }}.noarch.rpm"
-    
+
     # Brave browser repository
     brave_repo_key_url: "https://brave-browser-rpm-release.s3.brave.com/brave-core.asc"
-    
+
     # Visual Studio Code repository
     vscode_repo_key_url: "https://packages.microsoft.com/keys/microsoft.asc"
-    
+
+    kubectl_version: "v1.30.0"
+
   tasks:
     # Update system first
     - name: Update all packages
-      dnf:
+      ansible.builtin.dnf:
         name: "*"
         state: latest
-        
+
     # Enable RPM Fusion repositories for codecs and additional software
     - name: Install RPM Fusion free repository
-      dnf:
+      ansible.builtin.dnf:
         name: "{{ rpmfusion_free_url }}"
         state: present
-        disable_gpg_check: yes
-        
+        disable_gpg_check: true
+
     - name: Install RPM Fusion non-free repository
-      dnf:
+      ansible.builtin.dnf:
         name: "{{ rpmfusion_nonfree_url }}"
         state: present
-        disable_gpg_check: yes
-        
+        disable_gpg_check: true
+
     # Install basic development and media packages
     - name: Install basic packages from Fedora repos
-      dnf:
+      ansible.builtin.dnf:
         name:
           - git
-          - terminator #only the best terminal
+          - terminator # only the best terminal
           - firefox
           - vlc
           - wget
@@ -50,20 +52,20 @@
           - dnf-plugins-core
           - htop
           - vim
-          - neovim #cause sometimes you just have to
+          - neovim # cause sometimes you just have to
           - net-tools
           - nvtop
           - iftop
-          - iotop-c #now has sec boundaries to run as root only - set net-admin is you want to use sudo
+          - iotop-c # now has sec boundaries to run as root only - set net-admin is you want to use sudo
           - perf
           - ripgrep # faster grep
           - fzf # fuzzy finder
-          - ShellCheck #https://github.com/koalaman/shellcheck#installing
+          - ShellCheck # https://github.com/koalaman/shellcheck#installing
         state: present
-        
+
     # Install multimedia codecs for GoPro video support
     #- name: Install multimedia codecs and GStreamer plugins
-    #  dnf:
+    #  ansible.builtin.dnf:
     #    name:
          # - gstreamer1-plugins-base
          # - gstreamer1-plugins-good
@@ -76,82 +78,81 @@
          # - x265
          # - libdvdcss
     #    state: present
-        
+
     # Add Brave browser repository
     - name: Add Brave browser GPG key
-      rpm_key:
+      ansible.builtin.rpm_key:
         key: "{{ brave_repo_key_url }}"
         state: present
-        
+
     - name: Add Brave browser repository
-      yum_repository:
+      ansible.builtin.yum_repository:
         name: brave-browser
         description: Brave Browser
         baseurl: https://brave-browser-rpm-release.s3.brave.com/x86_64/
-        enabled: yes
-        gpgcheck: yes
+        enabled: true
+        gpgcheck: true
         gpgkey: "{{ brave_repo_key_url }}"
-        
+
     - name: Install Brave browser
-      dnf:
+      ansible.builtin.dnf:
         name: brave-browser
         state: present
-        
+
     # Install Sublime Text
     - name: Add Sublime Text GPG key
-      rpm_key:
+      ansible.builtin.rpm_key:
         key: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
         state: present
-        
+
     - name: Add Sublime Text repository
-      yum_repository:
+      ansible.builtin.yum_repository:
         name: sublime-text
         description: Sublime Text - x86_64 - Stable
         baseurl: https://download.sublimetext.com/rpm/stable/x86_64/
-        #sudo yum-config-manager --add-repo https://download.sublimetext.com/rpm/stable/x86_64/sublime-text.repo
-        enabled: yes
-        gpgcheck: yes
+        enabled: true
+        gpgcheck: true
         gpgkey: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
-        
+
     - name: Install Sublime Text
-      dnf:
+      ansible.builtin.dnf:
         name: sublime-text
         state: present
-        
+
     # Install Visual Studio Code
     - name: Add Visual Studio Code GPG key
-      rpm_key:
+      ansible.builtin.rpm_key:
         key: "{{ vscode_repo_key_url }}"
         state: present
-        
+
     - name: Add Visual Studio Code repository
-      yum_repository:
+      ansible.builtin.yum_repository:
         name: vscode
         description: Visual Studio Code
         baseurl: https://packages.microsoft.com/yumrepos/vscode
-        enabled: yes
-        gpgcheck: yes
+        enabled: true
+        gpgcheck: true
         gpgkey: "{{ vscode_repo_key_url }}"
-        
+
     - name: Install Visual Studio Code
-      dnf:
+      ansible.builtin.dnf:
         name: code
         state: present
-        
+
     # Configure VLC for better codec support
     #- name: Install additional VLC codecs
-    #  dnf:
+    #  ansible.builtin.dnf:
     #    name:
     #      - vlc-extras
     #    state: present
     #    ignore_errors: yes
-        
-    # Set up some useful aliases and configurations
+
+# Set up some useful aliases and configurations
     - name: Create .bashrc aliases and history settings for current user
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: "~/.bashrc"
         line: "{{ item }}"
-        create: yes
+        create: true
         mode: '0644'
       loop:
         - "alias ll='ls -alF'"
@@ -165,17 +166,63 @@
         - "export HISTCONTROL=ignoredups:erasedups"
         - "shopt -s histappend"
         - "PROMPT_COMMAND='history -a'"
-      become: no
-      
+      become: false
+
+# Install Kubernetes kubectl version 1.x using curl method
+    - name: Download kubectl binary
+      ansible.builtin.get_url:
+        url: https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl
+        dest: /tmp/kubectl
+        mode: '0755'
+
+    - name: Download kubectl version X checksum
+      ansible.builtin.get_url:
+        url: https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl.sha256
+        dest: /tmp/kubectl.sha256
+
+    - name: Verify kubectl checksum
+      ansible.builtin.shell: echo "$(cat /tmp/kubectl.sha256) /tmp/kubectl" | sha256sum --check
+      register: checksum_result
+      failed_when: checksum_result.rc != 0
+
+    - name: Install kubectl to /usr/local/bin
+      ansible.builtin.copy:
+        src: /tmp/kubectl
+        dest: /usr/local/bin/kubectl
+        owner: root
+        group: root
+        mode: '0755'
+        remote_src: true
+
+    - name: Clean up downloaded files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/kubectl
+        - /tmp/kubectl.sha256
+
+    # Setup kubectl bashrc and autocompletion
+    - name: Add kubectl autocompletion to .bashrc
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        line: "{{ item }}"
+        create: true
+      loop:
+        - "# Kubectl autocompletion"
+        - "source <(kubectl completion bash)"
+        - "complete -F __start_kubectl k"
+      become: false
+
     # Ensure multimedia group packages are installed
     - name: Install multimedia group packages
-      dnf:
+      ansible.builtin.dnf:
         name: "@multimedia"
         state: present
-        
+
     # Install hardware video acceleration (helpful for GoPro videos)
     # - name: Install hardware video acceleration packages
-    #   dnf:
+    #   ansible.builtin.dnf:
     #     name:
     #       - libva
     #       - libva-utils
@@ -186,7 +233,7 @@
 
 # Install essential security tools
     - name: Install security tools
-      dnf:
+      ansible.builtin.dnf:
         name:
           - keepassxc
           - nmap
@@ -196,45 +243,45 @@
 
 # Configure firewalld (default Fedora firewall)
     - name: Ensure firewalld is installed and running
-      systemd:
+      ansible.builtin.systemd:
         name: firewalld
-        enabled: yes
+        enabled: true
         state: started
-        
+
     - name: Set firewalld default zone to drop (deny all incoming)
-      firewalld:
+      ansible.posix.firewalld:
         zone: drop
         state: enabled
-        permanent: yes
-        immediate: yes
-        
+        permanent: true
+        immediate: true
+
     - name: Remove all services from public zone
-      firewalld:
+      ansible.posix.firewalld:
         zone: public
         service: "{{ item }}"
-        permanent: yes
-        immediate: yes
+        permanent: true
+        immediate: true
         state: disabled
       loop:
         - ssh
         - dhcpv6-client
         - cockpit
-      ignore_errors: yes
+      ignore_errors: true
 
     # Final system update
     - name: Final system update
-      dnf:
+      ansible.builtin.dnf:
         name: "*"
         state: latest
-        
+
   handlers:
-    - name: reload systemd
-      systemd:
-        daemon_reload: yes
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
 
 # configure ssh dir on fresh installs.
-    - name: check and create .ssh directory exists
-      file:
+    - name: Check and create .ssh directory exists
+      ansible.builtin.file:
         path: "{{ ansible_env.HOME }}/.ssh"
         state: directory
         mode: '0700'
@@ -242,56 +289,56 @@
         group: "{{ ansible_user_gid }}"
 
     - name: Set perms on .ssh dir
-      file:
+      ansible.builtin.file:
         path: "{{ ansible_env.HOME }}/.ssh"
         mode: '0700'
         owner: "{{ ansible_user_id }}"
         group: "{{ ansible_user_gid }}"
 
     - name: Set perms on all .ssh (private keys, config, etc.)
-      shell: chmod 600 {{ ansible_env.HOME }}/.ssh/*
-      ignore_errors: yes
+      ansible.builtin.shell: chmod 600 {{ ansible_env.HOME }}/.ssh/*
+      ignore_errors: true
       changed_when: false
 
     - name: Set public key permissions (if any .pub files exist)
-      shell: chmod 644 {{ ansible_env.HOME }}/.ssh/*.pub
-      ignore_errors: yes
+      ansible.builtin.shell: chmod 644 {{ ansible_env.HOME }}/.ssh/*.pub
+      ignore_errors: true
       changed_when: false
 
     - name: Verify .ssh directory permissions
-      stat:
+      ansible.builtin.stat:
         path: "{{ ansible_env.HOME }}/.ssh"
       register: ssh_dir_stat
 
 # set git global
     - name: Configure Git global user email
-      git_config:
+      community.general.git_config:
         name: user.email
         scope: global
         value: "ian.neilsen@gmail.com"
 
     - name: Configure Git global user name
-      git_config:
+      community.general.git_config:
         name: user.name
         scope: global
         value: "ianneilsen"
 
     - name: Verify Git configuration
-      shell: git config --global --list | grep user
+      ansible.builtin.shell: git config --global --list | grep user
       register: git_user_config
       changed_when: false
 
     - name: Display Git user configuration
-      debug:
+      ansible.builtin.debug:
         msg: "{{ git_user_config.stdout_lines }}"
 
 # Post-installation information
 - name: Display installation summary
   hosts: localhost
-  gather_facts: no
+  gather_facts: true
   tasks:
     - name: Show completion message
-      debug:
+      ansible.builtin.debug:
         msg:
           - "=== Installation Complete ==="
           - "Installed software:"
@@ -311,6 +358,11 @@
           - "  - FFmpeg with full codec support"
           - "  - Hardware acceleration drivers"
           - ""
+          - "Kubernetes tools configured:"
+          - "  - kubectl v1.34 installed with autocompletion"
+          - "  - Alias 'k' configured for kubectl (k get pods, k apply -f file.yaml)"
+          - "  - Autocompletion works for both 'kubectl' and 'k' commands"
+          - ""
           - "To run this playbook:"
           - "  ansible-playbook -K setup-fedora.yml"
           - ""
@@ -326,12 +378,10 @@
 # curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 # npm package manager for using claude code cli
 # add to bashrc and reload
-#export NVM_DIR="$HOME/.nvm"
-#[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-#nvm install --lts
-#nvm install 22        # Example: latest Node 22.x
-#nvm use 22
-
-
-
-
+# export NVM_DIR="$HOME/.nvm"
+# [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+# nvm install --lts
+# nvm install 22        # Example: latest Node 22.x
+# nvm use 22
+# install Go
+# install vscode extensions - ansible, yaml, docker, - containers, kubernetes, go
