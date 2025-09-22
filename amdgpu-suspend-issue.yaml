@@ -1,0 +1,23 @@
+---
+#ansible-playbook -i inventory.ini amdgpu-suspend-issue.yaml -u user --ask-become-pass
+# This playbook addresses the AMD RX 5700 XT suspend issue on Fedora 42+
+# by applying specific kernel parameters to mitigate the problem.
+
+- name: Fix AMD RX 5700 XT suspend on Fedora42+ kernel Linux fedora 6.16.7-200.fc42.x86_64++
+  hosts: fedora_host
+  become: true
+  tasks:
+    - name: Apply kernel parameters for suspend fix
+      ansible.builtin.command: >
+        grubby --update-kernel=ALL
+        --args="amdgpu.runpm=0 amdgpu.aspm=0 amdgpu.audio=0 amdgpu.reset_method=3"
+      when: amd_gpu_check.rc == 0
+      register: grubby_result
+      changed_when: grubby_result.rc == 0
+      notify: reboot_required
+
+    - name: Verify kernel parameters were applied
+      ansible.builtin.command: grubby --info=ALL
+      register: kernel_params
+      when: amd_gpu_check.rc == 0
+      changed_when: false
