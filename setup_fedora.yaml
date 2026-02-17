@@ -147,25 +147,14 @@
     #    state: present
     #    ignore_errors: yes
 
-# Set up some useful aliases and configurations
-    - name: Create .bashrc aliases and history settings for current user
-      ansible.builtin.lineinfile:
-        path: "~/.bashrc"
-        line: "{{ item }}"
-        create: true
+# Deploy .bashrc from files/.bashrc
+    - name: Deploy .bashrc for current user
+      ansible.builtin.copy:
+        src: files/.bashrc
+        dest: "{{ ansible_env.HOME }}/.bashrc"
+        owner: "{{ ansible_user_id }}"
         mode: '0644'
-      loop:
-        - "alias ll='ls -alF'"
-        - "alias la='ls -A'"
-        - "alias l='ls -CF'"
-        - "alias grep='grep --color=auto'"
-        - "# Enhanced bash history settings"
-        - "export HISTSIZE=10000"
-        - "export HISTFILESIZE=10000"
-        - "export HISTTIMEFORMAT='%F %T '"
-        - "export HISTCONTROL=ignoredups:erasedups"
-        - "shopt -s histappend"
-        - "PROMPT_COMMAND='history -a'"
+        backup: true
       become: false
 
 # Install Kubernetes kubectl version 1.x using curl method
@@ -201,18 +190,6 @@
       loop:
         - /tmp/kubectl
         - /tmp/kubectl.sha256
-
-    # Setup kubectl bashrc and autocompletion
-    - name: Add kubectl autocompletion to .bashrc
-      ansible.builtin.lineinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
-        line: "{{ item }}"
-        create: true
-      loop:
-        - "# Kubectl autocompletion"
-        - "source <(kubectl completion bash)"
-        - "complete -F __start_kubectl k"
-      become: false
 
     # Ensure multimedia group packages are installed
     - name: Install multimedia group packages
