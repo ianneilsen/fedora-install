@@ -1,0 +1,123 @@
+#!/bin/bash
+
+# 1. Cluster Health Overview
+khealth() {
+    echo "=== CLUSTER HEALTH CHECK ==="
+    echo ""
+    echo "▶ Node Status & Resource Pressure:"
+    kubectl get nodes -o json | jq -r '.items[] | [.metadata.name, (.status.conditions[] | select(.type=="Ready") | .status), (.status.conditions[] | select(.type=="MemoryPressure") | .status // "False"), (.status.conditions[] | select(.type=="DiskPressure") | .status // "False"), (.status.conditions[] | select(.type=="PIDPressure") | .status // "False"), .status.allocatable.cpu, .status.allocatable.memory] | @tsv' | column -t -s $'\t' -N NAME,READY,MEM_PRESSURE,DISK_PRESSURE,PID_PRESSURE,CPU,MEMORY
+    
+    echo ""
+    echo "▶ Pods NOT Running (excluding Completed/Evicted):"
+    kubectl get pods --all-namespaces -o json | jq -r '.items[] | select(.status.phase != "Running" and .status.phase != "Succeeded" and (.status.reason // "") != "Evicted") | [.metadata.namespace, .metadata.name, .status.phase, (.status.reason // "N/A")] | @tsv' | column -t -s $'\t' -N NAMESPACE,POD,PHASE,REASON || echo "  ✓ All pods healthy"
+    
+    echo ""
+    echo "▶ Pods with Restart Count >0:"
+    kubectl get pods --all-namespaces -o custom-columns=NAMESPACE:.metadata.namespace,POD:.metadata.name,RESTARTS:.status.containerStatuses[0].restartCount,STATUS:.status.phase | grep -v "RESTARTS" | awk '$3 > 0' || echo "  ✓ No restarts"
+    
+    echo ""
+    echo "▶ Pending Pods with Reasons:"
+    kubectl get pods --all-namespaces -o json | jq -r '.items[] | select(.status.phase == "Pending") | [.metadata.namespace, .metadata.name, ((.status.conditions[] | select(.type=="PodScheduled") | .reason) // "Unknown"), ((.status.conditions[] | select(.type=="PodScheduled") | .message) // "No message")] | @tsv' | column -t -s $'\t' -N NAMESPACE,POD,REASON,MESSAGE || echo "  ✓ No pending pods"
+}
+
+# 2. Resource Exhaustion Detective
+kresource() {
+    echo "=== RESOURCE EXHAUSTION ANALYSIS ==="
+    echo ""
+    
+    if ! kubectl top nodes &>/dev/null; then
+        echo "⚠ metrics-server not available, showing resource requests/limits instead"
+        echo ""
+        echo "▶ Resource Requests by Namespace:"
+        kubectl get pods --all-namespaces -o json | jq -r '.items | group_by(.metadata.namespace) | .[] | {namespace: .[0].metadata.namespace, cpu_req: ([.[].spec.containers[].resources.requests.cpu // "0" | gsub("m$";"") | tonumber] | add), mem_req: ([.[].spec.containers[].resources.requests.memory // "0Mi" | gsub("Mi$|Gi$|Ki$";"") | tonumber] | add)} | [.namespace, .cpu_req, .mem_req] | @tsv' | column -t -s $'\t' -N NAMESPACE,CPU_REQ_m,MEM_REQ_Mi | sort -k2 -rn | head -15
+    else
+        echo "▶ Top CPU Consuming Pods:"
+        kubectl top pods --all-namespaces --sort-by=cpu 2>/dev/null | head -15
+        
+        echo ""
+        echo "▶ Top Memory Consuming Pods:"
+        kubectl top pods --all-namespaces --sort-by=memory 2>/dev/null | head -15
+        
+        echo ""
+        echo "▶ Node Resource Usage:"
+        kubectl top nodes 2>/dev/null
+    fi
+    
+    echo ""
+    echo "▶ Pods WITHOUT Resource Limits (risky):"
+    kubectl get pods --all-namespaces -o json | jq -r '.items[] | select(.spec.containers[].resources.limits == null or .spec.containers[].resources.limits == {}) | [.metadata.namespace, .metadata.name, .spec.containers[0].name] | @tsv' | column -t -s $'\t' -N NAMESPACE,POD,CONTAINER | head -20 || echo "  ✓ All pods have limits"
+    
+    echo ""
+    echo "▶ Pods with QoS Class BestEffort (no requests/limits):"
+    kubectl get pods --all-namespaces -o json | jq -r '.items[] | select(.status.qosClass == "BestEffort") | [.metadata.namespace, .metadata.name, .status.qosClass] | @tsv' | column -t -s $'\t' -N NAMESPACE,POD,QOS_CLASS | head -15 || echo "  ✓ No BestEffort pods"
+}
+
+# 3. Network & Connectivity Issues
+knetwork() {
+    echo "=== NETWORK DIAGNOSTICS ==="
+    echo ""
+    echo "▶ Services Without Endpoints:"
+    
+    kubectl get svc --all-namespaces -o json | jq -r '.items[] | select(.spec.selector != null) | [.metadata.namespace, .metadata.name] | @tsv' | while IFS=$'\t' read -r namespace service; do
+        endpoints=$(kubectl get endpoints -n "$namespace" "$service" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
+        if [ -z "$endpoints" ]; then
+            echo -e "$namespace\t$service\tNO ENDPOINTS"
+        fi
+    done | column -t -s $'\t' -N NAMESPACE,SERVICE,STATUS || echo "  ✓ All services have endpoints"
+    
+    echo ""
+    echo "▶ Image Pull Failures:"
+    kubectl get pods --all-namespaces -o json | jq -r '.items[] | select(.status.containerStatuses != null) | select(.status.containerStatuses[] | select(.state.waiting.reason == "ErrImagePull" or .state.waiting.reason == "ImagePullBackOff")) | [.metadata.namespace, .metadata.name, .status.containerStatuses[0].state.waiting.reason, .status.containerStatuses[0].image] | @tsv' | column -t -s $'\t' -N NAMESPACE,POD,REASON,IMAGE || echo "  ✓ No image pull failures"
+    
+    echo ""
+    echo "▶ Ingress Status:"
+    kubectl get ingress --all-namespaces -o json 2>/dev/null | jq -r '.items[] | [.metadata.namespace, .metadata.name, (.spec.ingressClassName // "none"), (.spec.rules[].host // "none" | tostring), ((.status.loadBalancer.ingress[].ip // .status.loadBalancer.ingress[].hostname) // "none")] | @tsv' | column -t -s $'\t' -N NAMESPACE,NAME,CLASS,HOSTS,ADDRESS || echo "  No ingresses found"
+    
+    echo ""
+    echo "▶ DNS Pods Status (CoreDNS/kube-dns):"
+    kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide 2>/dev/null || kubectl get pods -n kube-system -l k8s-app=coredns -o wide 2>/dev/null || echo "  ⚠ DNS pods not found"
+    
+    echo ""
+    echo "▶ NetworkPolicy Count by Namespace:"
+    kubectl get netpol --all-namespaces 2>/dev/null | awk 'NR>1 {ns[$1]++} END {for (n in ns) print n"\t"ns[n]}' | column -t -s $'\t' -N NAMESPACE,POLICIES || echo "  No network policies"
+}
+
+# 4. Event Storm
+kevents() {
+    echo "=== RECENT CLUSTER EVENTS ==="
+    echo ""
+    echo "▶ Warning & Error Events (Last 50):"
+    kubectl get events --all-namespaces --sort-by='.lastTimestamp' -o json | jq -r '.items[] | select(.type != "Normal") | [.metadata.namespace, .lastTimestamp, .type, .reason, (.involvedObject.kind + "/" + .involvedObject.name), (.message[0:80])] | @tsv' | column -t -s $'\t' -N NAMESPACE,TIME,TYPE,REASON,OBJECT,MESSAGE | tail -50
+    
+    echo ""
+    echo "▶ Event Summary by Reason:"
+    kubectl get events --all-namespaces -o json | jq -r '.items[] | select(.type != "Normal") | [.reason, .type] | @tsv' | sort | uniq -c | sort -rn | head -20 | awk '{printf "%-40s %-15s %s\n", $2, $3, $1}' | column -t -N REASON,TYPE,COUNT
+    
+    echo ""
+    echo "▶ Most Recent Errors:"
+    kubectl get events --all-namespaces --field-selector type=Warning --sort-by='.lastTimestamp' 2>/dev/null | tail -10 || echo "  No warnings"
+}
+
+# 5. Storage & PVC Issues
+kstorage() {
+    echo "=== STORAGE DIAGNOSTICS ==="
+    echo ""
+    echo "▶ PVC Status (Non-Bound):"
+    kubectl get pvc --all-namespaces -o json | jq -r '.items[] | select(.status.phase != "Bound") | [.metadata.namespace, .metadata.name, .status.phase, (.spec.storageClassName // "default"), .spec.resources.requests.storage] | @tsv' | column -t -s $'\t' -N NAMESPACE,PVC,STATUS,STORAGE_CLASS,SIZE || echo "  ✓ All PVCs bound"
+    
+    echo ""
+    echo "▶ PV Status:"
+    kubectl get pv -o json 2>/dev/null | jq -r '.items[] | [.metadata.name, .spec.capacity.storage, (.spec.accessModes[0] // "N/A"), .spec.persistentVolumeReclaimPolicy, .status.phase, ((.spec.claimRef.namespace // "") + "/" + (.spec.claimRef.name // "unbound")), (.spec.storageClassName // "default")] | @tsv' | column -t -s $'\t' -N NAME,CAPACITY,ACCESS,RECLAIM,STATUS,CLAIM,CLASS || echo "  No PVs found"
+    
+    echo ""
+    echo "▶ StatefulSet Status:"
+    kubectl get statefulsets --all-namespaces -o json 2>/dev/null | jq -r '.items[] | [.metadata.namespace, .metadata.name, (.spec.replicas // 0), (.status.readyReplicas // 0), ((.spec.volumeClaimTemplates[0].metadata.name) // "none")] | @tsv' | column -t -s $'\t' -N NAMESPACE,STATEFULSET,DESIRED,READY,VCT || echo "  No StatefulSets found"
+    
+    echo ""
+    echo "▶ Pods Stuck in ContainerCreating:"
+    kubectl get pods --all-namespaces -o json | jq -r '.items[] | select(.status.phase == "Pending") | select((.status.containerStatuses == null) or (.status.containerStatuses == [])) | select((.status.conditions[] | select(.type=="PodScheduled") | .status) == "True") | [.metadata.namespace, .metadata.name, ((.status.conditions[] | select(.reason != null) | .reason) // "ContainerCreating")] | @tsv' | column -t -s $'\t' -N NAMESPACE,POD,REASON || echo "  ✓ No stuck pods"
+    
+    echo ""
+    echo "▶ Storage Classes:"
+    kubectl get storageclass -o custom-columns=NAME:.metadata.name,PROVISIONER:.provisioner,RECLAIM:.reclaimPolicy,BINDING:.volumeBindingMode,DEFAULT:.metadata.annotations.storageclass\\.kubernetes\\.io/is-default-class 2>/dev/null || echo "  No storage classes"
+}
