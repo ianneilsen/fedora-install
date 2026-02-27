@@ -1,0 +1,150 @@
+# Add these to your ~/.bashrc or ~/.bashrc.d/kubernetes-fzf.sh
+
+# 1. Interactive pod selector with namespace
+kp() {
+    local pod=$(kubectl get pods --all-namespaces -o wide | fzf --header-lines=1 | awk '{print $2, $1}')
+    if [ -n "$pod" ]; then
+        echo "Selected: $pod"
+        echo "$pod" | read -r name ns
+        export KPOD=$name
+        export KNS=$ns
+    fi
+}
+
+# 2. Exec into pod with container selection
+kexec() {
+    local selection=$(kubectl get pods --all-namespaces -o wide | fzf --header-lines=1)
+    if [ -n "$selection" ]; then
+        local ns=$(echo "$selection" | awk '{print $1}')
+        local pod=$(echo "$selection" | awk '{print $2}')
+        local containers=$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.containers[*].name}')
+        
+        if [ $(echo "$containers" | wc -w) -eq 1 ]; then
+            kubectl exec -it -n "$ns" "$pod" -- /bin/sh
+        else
+            local container=$(echo "$containers" | tr ' ' '\n' | fzf --prompt="Select container: ")
+            kubectl exec -it -n "$ns" "$pod" -c "$container" -- /bin/sh
+        fi
+    fi
+}
+
+# 3. Tail logs with follow and container selection
+klogs() {
+    local selection=$(kubectl get pods --all-namespaces -o wide | fzf --header-lines=1)
+    if [ -n "$selection" ]; then
+        local ns=$(echo "$selection" | awk '{print $1}')
+        local pod=$(echo "$selection" | awk '{print $2}')
+        local containers=$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.containers[*].name}')
+        
+        if [ $(echo "$containers" | wc -w) -eq 1 ]; then
+            kubectl logs -n "$ns" "$pod" -f --tail=100
+        else
+            local container=$(echo "$containers" | tr ' ' '\n' | fzf --prompt="Select container: ")
+            kubectl logs -n "$ns" "$pod" -c "$container" -f --tail=100
+        fi
+    fi
+}
+
+# 4. Previous logs (crashed container debugging)
+klogsp() {
+    local selection=$(kubectl get pods --all-namespaces -o wide | fzf --header-lines=1)
+    if [ -n "$selection" ]; then
+        local ns=$(echo "$selection" | awk '{print $1}')
+        local pod=$(echo "$selection" | awk '{print $2}')
+        kubectl logs -n "$ns" "$pod" --previous
+    fi
+}
+
+# 5. Describe resource with type selection
+kdesc() {
+    local resource_type=$(echo -e "pod\ndeployment\nservice\nstatefulset\ndaemonset\ningress\nnode\npvc\nconfigmap\nsecret" | fzf --prompt="Resource type: ")
+    if [ -n "$resource_type" ]; then
+        local selection=$(kubectl get "$resource_type" --all-namespaces -o wide 2>/dev/null | fzf --header-lines=1)
+        if [ -n "$selection" ]; then
+            local ns=$(echo "$selection" | awk '{print $1}')
+            local name=$(echo "$selection" | awk '{print $2}')
+            kubectl describe "$resource_type" -n "$ns" "$name" | less
+        fi
+    fi
+}
+
+# 6. Delete pod (with confirmation)
+kdel() {
+    local selection=$(kubectl get pods --all-namespaces -o wide | fzf --header-lines=1 --prompt="Select pod to DELETE: ")
+    if [ -n "$selection" ]; then
+        local ns=$(echo "$selection" | awk '{print $1}')
+        local pod=$(echo "$selection" | awk '{print $2}')
+        echo "Delete pod $pod in namespace $ns? (y/N)"
+        read -r confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            kubectl delete pod -n "$ns" "$pod"
+        fi
+    fi
+}
+
+# 7. Port forward with automatic port detection
+kpf() {
+    local selection=$(kubectl get pods --all-namespaces -o wide | fzf --header-lines=1)
+    if [ -n "$selection" ]; then
+        local ns=$(echo "$selection" | awk '{print $1}')
+        local pod=$(echo "$selection" | awk '{print $2}')
+        
+        # Get container ports
+        local ports=$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.containers[*].ports[*].containerPort}' | tr ' ' '\n' | sort -u)
+        
+        if [ -z "$ports" ]; then
+            echo "No ports found. Enter port manually:"
+            read -r port
+        else
+            local port=$(echo "$ports" | fzf --prompt="Select port: ")
+        fi
+        
+        if [ -n "$port" ]; then
+            echo "Port forwarding $ns/$pod on localhost:$port -> $port"
+            kubectl port-forward -n "$ns" "$pod" "$port:$port"
+        fi
+    fi
+}
+
+# 8. Switch context with preview
+kctx() {
+    local context=$(kubectl config get-contexts -o name | fzf \
+        --preview 'kubectl config get-contexts {} | tail -n +2' \
+        --preview-window=right:50%)
+    if [ -n "$context" ]; then
+        kubectl config use-context "$context"
+    fi
+}
+
+# 9. Switch namespace and set as default
+kns() {
+    local ns=$(kubectl get namespaces -o name | cut -d'/' -f2 | fzf --prompt="Select namespace: ")
+    if [ -n "$ns" ]; then
+        kubectl config set-context --current --namespace="$ns"
+        echo "Switched to namespace: $ns"
+    fi
+}
+
+# 10. Debug with ephemeral container (Kubernetes 1.23+)
+kdebug() {
+    local selection=$(kubectl get pods --all-namespaces -o wide | fzf --header-lines=1)
+    if [ -n "$selection" ]; then
+        local ns=$(echo "$selection" | awk '{print $1}')
+        local pod=$(echo "$selection" | awk '{print $2}')
+        
+        echo "Debug image (default: nicolaka/netshoot):"
+        read -r debug_image
+        debug_image=${debug_image:-nicolaka/netshoot}
+        
+        kubectl debug -it -n "$ns" "$pod" --image="$debug_image" --target=$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.containers[0].name}')
+    fi
+}
+
+# Bonus: Get all resources in namespace with fuzzy search
+kall() {
+    local ns=$(kubectl get namespaces -o name | cut -d'/' -f2 | fzf --prompt="Select namespace: ")
+    if [ -n "$ns" ]; then
+        kubectl api-resources --verbs=list --namespaced -o name | fzf --multi --prompt="Select resource types: " | \
+        xargs -I {} kubectl get {} -n "$ns"
+    fi
+}
