@@ -1,0 +1,452 @@
+---
+# Setup macOS
+# Mirrors ianneilsen/fedora-install (setup_fedora.yaml)s.
+#
+# Prereqs:
+#   xcode-select --install
+#   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+#   brew install ansible
+#   ansible-galaxy collection install community.general
+#
+# Run:
+#   ansible-playbook -K setup_macos.yaml
+#
+# Tag selection:
+#   ansible-playbook setup_macos.yaml --tags system
+#   ansible-playbook setup_macos.yaml --tags aws
+#   ansible-playbook setup_macos.yaml --tags k8s
+#   ansible-playbook setup_macos.yaml -e install_yubikey=true --tags yubikey
+#
+# Skip yubikey (default is off): depends If i am using a Yubikey or not. Good for aws and log ins.
+#   ansible-playbook setup_macos.yaml --skip-tags yubikey
+
+- name: Setup macOS with base software
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    # Flip to true (or pass -e install_yubikey=true) to install YubiKey tooling
+    install_yubikey: false
+
+    # Pin kubectl if you prefer the curl method over brew install task below.
+    kubectl_version: "v1.35.0"
+
+    # ---------- 1. SYSTEM (mirrors Fedora basic packages) ----------
+    system_brew_formulae:
+      - git
+      - wget
+      - curl
+      - htop
+      - vim
+      # - neovim
+      - iftop
+      - ripgrep
+      - fzf
+      - shellcheck
+      # macOS-flavoured additions for parity with Fedora niceties
+      - coreutils
+      - findutils
+      - gnu-sed
+      - gnu-tar
+      - jq
+      - yq
+      - tree
+      - bat
+      - fd
+      - tmux
+      # - mas #terminal apple app store client.
+      # - pinentry-mac #gui utility, allowing GnuPG (GPG) to securely prompt users for passphrases 
+
+    system_brew_casks:
+      - iterm2              # Fedora: terminator
+      - firefox
+      - brave-browser
+      - visual-studio-code
+      # - rectangle #window tiling not sure if this is the best option.
+      # - font-jetbrains-mono-nerd-font
+
+    # ---------- Security tools (mirrors Fedora security block) ----------
+    security_brew_formulae:
+      - nmap
+      - lynis
+
+    security_brew_casks:
+      # - keepassxc #should check before enabling this on work laptop
+      # - wireshark #tshark or tcpdump for wire capture on macs
+
+    # ---------- 2. AWS TOOLING ----------
+    aws_brew_formulae:
+      - awscli
+      # - aws-vault #opensorce aws creds in dev enviros short term STS. check if org is ok running this
+      # - aws-sam-cli #servless application model cli for local testing and deployment of serverless apps
+      # - eksctl
+      - ssm-session-manager-plugin # ssm to ec2 aws ssm start-session -- must find my show and connnect to ec2 ripgrep script
+      - terraform
+      # - terragrunt #only use if managing much infra
+      # - tflint #terrraform linter with AWS rulesets (mirrors my Fedora tfsec + checkov)
+      # - tfsec #Static analysis security scanner for your terraform code
+      # - checkov #brew tap bridgecrewio/checkov https://github.com/bridgecrewio/checkov - scan Terraform, CloudFormation, AWS SAM, and Kubernetes manifests for misconfigurations
+      # - granted #role swicther for multiple aws accounts - i.e. assume dev, stage, prod roles without re-authenticating
+
+    # ---------- 3. KUBERNETES TOOLING ----------
+    k8s_brew_formulae:
+      - kubernetes-cli      # kubectl (always use curl method below)
+      - kubectx             # cluster context switcher - ships kubectx + kubens
+      - helm
+      - helmfile
+      - krew # plugin mger
+      - k9s # gui fir kubectl
+      - stern # multiple pod log tailing
+      - kustomize # k8s native config mgmt tool
+      - kind # local k8s clusters in docker
+      # - minikube
+      # - microk8s
+      - kubeseal
+      - argocd
+      - argo
+      - flux
+      # - cilium-cli #only install if running cilium in cluster - cli for cilium network policies and troubleshooting
+      # - hubble #cilium's observability tool - only install if running cilium in cluster
+      - kyverno
+      # - trivy # security scanner for k8s clusters and container images - mirrors my Fedora setup with kube-bench and kube-hunter, but trivy is more user-friendly and has a brew formula
+      - kube-linter # static analysis tool for Kubernetes YAML files - checks for security issues, best practices, and potential misconfigurations
+      - popeye # another Kubernetes cluster sanitizer and linter - provides a different set of checks and a more opinionated output compared to kube-linter, can be used together for comprehensive analysis
+      - dive # container image explorer with layer analysis and vulnerability scanning - good for debugging and optimizing Dockerfiles, similar to trivy but with a focus on image layers and size optimization
+      - skopeo # tool for inspecting/managing container images in remote registries - useful for contents and metadata without pulling the entire image, can also copy images between registries
+      - cosign # tool for signing and verifying container images - helps ensure the integrity and provenance of images, can sign images with private key & verify signatures with public key
+      - sops # tool for encrypting and decrypting files, often used for managing secrets in Kubernetes - can encrypt YAML files containing sensitive data and decrypt them at runtime, integrates well with GitOps
+      - age # simple file encryption tool - can be used for encrypting any files, including Kubernetes secrets or sensitive configuration files, designed to be a more user-friendly alternative to GPG
+      - velero # backup restore tool for Kubernetes clusters - can back up entire clusters or specific namespaces, including persistent volumes, and restore them to the same or different clusters, useful for disaster recovery and migration
+      - datadog-ci # datadog cli for monitoring and observability - can be used to manage Datadog resources, send custom metrics, and interact with the Datadog API from the command line
+
+    k8s_brew_casks:
+      - lens # k8s ide - slow but someimes helpful.
+
+    # ---------- YubiKey (optional see flag) ----------
+    yubikey_brew_formulae:
+      - ykman
+      - yubico-piv-tool
+      - libfido2
+      - opensc
+      - hopenpgp-tools
+      - gnupg
+
+    yubikey_brew_casks:
+      - yubico-yubikey-manager
+      - yubico-authenticator
+
+  pre_tasks:
+    - name: Fail if not running on macOS
+      ansible.builtin.fail:
+        msg: "This playbook only runs on macOS (Darwin)."
+      when: ansible_system != "Darwin"
+
+    - name: Detect Homebrew prefix (Apple Silicon vs Intel)
+      ansible.builtin.set_fact:
+        homebrew_prefix: "{{ '/opt/homebrew' if ansible_architecture == 'arm64' else '/usr/local' }}"
+
+    - name: Ensure Homebrew is installed
+      ansible.builtin.stat:
+        path: "{{ homebrew_prefix }}/bin/brew"
+      register: brew_bin
+
+    - name: Fail if Homebrew is missing
+      ansible.builtin.fail:
+        msg: 'Homebrew not found. Install it first: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+      when: not brew_bin.stat.exists
+
+    - name: Update Homebrew (mirrors Fedora "Update all packages")
+      community.general.homebrew:
+        update_homebrew: true
+      tags: [system, aws, k8s, yubikey]
+
+  tasks:
+    # =====================================================================
+    # 1. SYSTEM STUFFZ
+    # =====================================================================
+    - name: "[system] Install base CLI formulae"
+      community.general.homebrew:
+        name: "{{ system_brew_formulae }}"
+        state: present
+      tags: system
+
+    - name: "[system] Install base GUI casks"
+      community.general.homebrew_cask:
+        name: "{{ system_brew_casks }}"
+        state: present
+        accept_external_apps: true
+      tags: system
+
+    - name: "[system] Install security tools - formulae"
+      community.general.homebrew:
+        name: "{{ security_brew_formulae }}"
+        state: present
+      tags: system
+
+    - name: "[system] Install security tools - casks"
+      community.general.homebrew_cask:
+        name: "{{ security_brew_casks }}"
+        state: present
+        accept_external_apps: true
+      tags: system
+
+    # Deploy .bashrc (mirrors Fedora task). On macOS the default shell is zsh,
+    # so we drop both — adjust to .zshrc if you keep separate dotfiles.
+    - name: "[system] Deploy .bashrc for current user"
+      ansible.builtin.copy:
+        src: files/.bashrc
+        dest: "{{ ansible_env.HOME }}/.bashrc"
+        mode: "0644"
+        backup: true
+      tags: system
+      ignore_errors: true   # don't blow up if files/.bashrc isn't present yet
+
+    # Sensible macOS defaults (no Fedora equivalent — quality of life)
+    - name: "[system] Show hidden files in Finder"
+      community.general.osx_defaults:
+        domain: com.apple.finder
+        key: AppleShowAllFiles
+        type: bool
+        value: true
+        state: present
+      tags: system
+
+    - name: "[system] Show all filename extensions"
+      community.general.osx_defaults:
+        domain: NSGlobalDomain
+        key: AppleShowAllExtensions
+        type: bool
+        value: true
+        state: present
+      tags: system
+
+    - name: "[system] Faster key repeat"
+      community.general.osx_defaults:
+        domain: NSGlobalDomain
+        key: KeyRepeat
+        type: int
+        value: 2
+        state: present
+      tags: system
+
+    - name: "[system] Disable press-and-hold for keys (enable key repeat)"
+      community.general.osx_defaults:
+        domain: NSGlobalDomain
+        key: ApplePressAndHoldEnabled
+        type: bool
+        value: false
+        state: present
+      tags: system
+
+    # Note: macOS firewall is configured via System Settings / `socketfilterfw`.
+    # Skipping the Fedora firewalld block intentionally — script it separately
+    # if you want a hardened equivalent.
+
+    # =====================================================================
+    # 2. AWS TOOLING
+    # =====================================================================
+    - name: "[aws] Tap common-fate/granted"
+      community.general.homebrew_tap:
+        name: common-fate/granted
+        state: present
+      tags: aws
+
+    - name: "[aws] Install AWS formulae"
+      community.general.homebrew:
+        name: "{{ aws_brew_formulae }}"
+        state: present
+      tags: aws
+
+    - name: "[aws] Ensure ~/.aws exists"
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.aws"
+        state: directory
+        mode: "0700"
+      tags: aws
+
+    # =====================================================================
+    # 3. KUBERNETES TOOLING
+    # =====================================================================
+    - name: "[k8s] Install Kubernetes formulae"
+      community.general.homebrew:
+        name: "{{ k8s_brew_formulae }}"
+        state: present
+      tags: k8s
+
+    - name: "[k8s] Install Kubernetes casks"
+      community.general.homebrew_cask:
+        name: "{{ k8s_brew_casks }}"
+        state: present
+        accept_external_apps: true
+      tags: k8s
+
+    - name: "[k8s] Ensure ~/.kube exists"
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.kube"
+        state: directory
+        mode: "0700"
+      tags: k8s
+
+    - name: "[k8s] Install useful krew plugins"
+      ansible.builtin.shell: |
+        export PATH="{{ ansible_env.HOME }}/.krew/bin:$PATH"
+        kubectl krew update
+        for p in ctx ns neat tree who-can access-matrix view-secret deprecations; do
+          kubectl krew install "$p" || true
+        done
+      args:
+        executable: /bin/bash
+        creates: "{{ ansible_env.HOME }}/.krew/store/krew"
+      tags: k8s
+
+    # ----- Optional: pinned kubectl via curl (mirrors your Fedora method) -----
+    # Uncomment this block and remove `kubernetes-cli` from k8s_brew_formulae
+    # if you want to pin kubectl exactly to {{ kubectl_version }}.
+    #
+    # - name: "[k8s] Download kubectl binary (darwin/{{ ansible_architecture }})"
+    #   ansible.builtin.get_url:
+    #     url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/darwin/{{ 'arm64' if ansible_architecture == 'arm64' else 'amd64' }}/kubectl"
+    #     dest: /tmp/kubectl
+    #     mode: '0755'
+    #   tags: k8s
+    #
+    # - name: "[k8s] Download kubectl checksum"
+    #   ansible.builtin.get_url:
+    #     url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/darwin/{{ 'arm64' if ansible_architecture == 'arm64' else 'amd64' }}/kubectl.sha256"
+    #     dest: /tmp/kubectl.sha256
+    #     mode: '0644'
+    #   tags: k8s
+    #
+    # - name: "[k8s] Verify kubectl checksum"
+    #   ansible.builtin.shell: set -o pipefail && echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | shasum -a 256 --check
+    #   args:
+    #     executable: /bin/bash
+    #   changed_when: false
+    #   tags: k8s
+    #
+    # - name: "[k8s] Install kubectl to /usr/local/bin"
+    #   ansible.builtin.copy:
+    #     src: /tmp/kubectl
+    #     dest: /usr/local/bin/kubectl
+    #     owner: root
+    #     group: wheel
+    #     mode: '0755'
+    #     remote_src: true
+    #   become: true
+    #   tags: k8s
+
+    # =====================================================================
+    # YUBIKEY (optional)
+    # =====================================================================
+    - name: "[yubikey] Install YubiKey formulae"
+      community.general.homebrew:
+        name: "{{ yubikey_brew_formulae }}"
+        state: present
+      when: install_yubikey | bool
+      tags: yubikey
+
+    - name: "[yubikey] Install YubiKey casks"
+      community.general.homebrew_cask:
+        name: "{{ yubikey_brew_casks }}"
+        state: present
+        accept_external_apps: true
+      when: install_yubikey | bool
+      tags: yubikey
+
+    - name: "[yubikey] Ensure ~/.gnupg exists"
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.gnupg"
+        state: directory
+        mode: "0700"
+      when: install_yubikey | bool
+      tags: yubikey
+
+    - name: "[yubikey] Configure gpg-agent to use pinentry-mac"
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/.gnupg/gpg-agent.conf"
+        content: |
+          pinentry-program {{ homebrew_prefix }}/bin/pinentry-mac
+          default-cache-ttl 600
+          max-cache-ttl 7200
+        mode: "0600"
+      when: install_yubikey | bool
+      tags: yubikey
+
+    # =====================================================================
+    # SSH directory setup (mirrors Fedora block)
+    # =====================================================================
+    - name: Check and create .ssh directory
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.ssh"
+        state: directory
+        mode: "0700"
+
+    - name: Set perms on all .ssh files (private keys, config, etc.)
+      ansible.builtin.shell: chmod 600 "{{ ansible_env.HOME }}"/.ssh/* 2>/dev/null || true
+      changed_when: false
+
+    - name: Set public key permissions (if any .pub files exist)
+      ansible.builtin.shell: chmod 644 "{{ ansible_env.HOME }}"/.ssh/*.pub 2>/dev/null || true
+      changed_when: false
+
+    # =====================================================================
+    # Git global config (mirrors Fedora block exactly)
+    # =====================================================================
+    - name: Configure Git global user email
+      community.general.git_config:
+        name: user.email
+        scope: global
+        value: "ian.neilsen@gmail.com"
+
+    - name: Configure Git global user name
+      community.general.git_config:
+        name: user.name
+        scope: global
+        value: "ianneilsen"
+
+    - name: Verify Git configuration
+      ansible.builtin.shell: set -o pipefail && git config --global --list | grep user
+      args:
+        executable: /bin/bash
+      register: git_user_config
+      changed_when: false
+
+    - name: Display Git user configuration
+      ansible.builtin.debug:
+        msg: "{{ git_user_config.stdout_lines }}"
+
+# =========================================================================
+# Post-installation summary
+# =========================================================================
+- name: Display installation summary
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  tasks:
+    - name: Show completion message
+      ansible.builtin.debug:
+        msg:
+          - "=== macOS Installation Complete ==="
+          - "System tools: git, vim, neovim, htop, ripgrep, fzf, shellcheck, jq, yq, tmux..."
+          - "Browsers: Firefox, Brave"
+          - "Editors: Sublime Text, Visual Studio Code"
+          - "Terminal: iTerm2 (terminator equivalent)"
+          - "Media: VLC"
+          - "Security: keepassxc, nmap, wireshark, lynis"
+          - ""
+          - "AWS tooling: awscli, aws-vault, eksctl, ssm-session-manager-plugin,"
+          - "             terraform, terragrunt, tflint, tfsec, checkov, granted"
+          - ""
+          - "Kubernetes tooling: kubectl, kubectx/kubens, helm, helmfile, krew, k9s,"
+          - "                    stern, kustomize, kind, minikube, kubeseal, argocd,"
+          - "                    flux, cilium-cli, hubble, kyverno, trivy, kube-linter,"
+          - "                    popeye, dive, skopeo, cosign, sops, age, velero, lens"
+          - ""
+          - "YubiKey installed: {{ hostvars['localhost']['install_yubikey'] | default(false) }}"
+          - ""
+          - "To run this playbook:"
+          - "  ansible-playbook -K setup_macos.yaml"
+          - ""
+          - "Note: macOS firewall is NOT configured (Fedora used firewalld)."
+          - "Configure via System Settings -> Network -> Firewall, or socketfilterfw."
