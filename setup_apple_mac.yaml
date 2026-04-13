@@ -3,9 +3,10 @@
 # Mirrors ianneilsen/fedora-install (setup_fedora.yaml)s.
 #
 # Prereqs:
-#   xcode-select --install
+#   xcode-select --install - ensure you have updated you Mac OS - weird errors can occur following a system reset or new mac.
 #   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 #   brew install ansible
+#   brew install git
 #   ansible-galaxy collection install community.general
 #
 # Run:
@@ -56,13 +57,14 @@
       - fd
       - tmux
       # - mas #terminal apple app store client.
-      # - pinentry-mac #gui utility, allowing GnuPG (GPG) to securely prompt users for passphrases 
+      # - pinentry-mac #gui utility, allowing GnuPG (GPG) to securely prompt users for passphrases
 
-    system_brew_casks:
-      - iterm2              # Fedora: terminator
-      - firefox
-      - brave-browser
-      - visual-studio-code
+    system_brew_casks: # uncheck if you dont manual install.
+      # - iterm2   # Fedora: terminator
+      # - firefox
+      # - brave-browser
+      # - chrome
+      # - visual-studio-code
       # - rectangle #window tiling not sure if this is the best option.
       # - font-jetbrains-mono-nerd-font
 
@@ -83,11 +85,11 @@
       # - eksctl
       - ssm-session-manager-plugin # ssm to ec2 aws ssm start-session -- must find my show and connnect to ec2 ripgrep script
       - terraform
-      # - terragrunt #only use if managing much infra
-      # - tflint #terrraform linter with AWS rulesets (mirrors my Fedora tfsec + checkov)
-      # - tfsec #Static analysis security scanner for your terraform code
-      # - checkov #brew tap bridgecrewio/checkov https://github.com/bridgecrewio/checkov - scan Terraform, CloudFormation, AWS SAM, and Kubernetes manifests for misconfigurations
-      # - granted #role swicther for multiple aws accounts - i.e. assume dev, stage, prod roles without re-authenticating
+      # - terragrunt # only use if managing much infra
+      # - tflint # terrraform linter with AWS rulesets (mirrors my Fedora tfsec + checkov)
+      # - tfsec # Static analysis security scanner for your terraform code
+      # - checkov # brew tap bridgecrewio/checkov https://github.com/bridgecrewio/checkov - scan Terraform, CloudFormation, AWS SAM, K9 manifests for misconfigurations
+      # - granted # role swicther for multiple aws accounts - i.e. assume dev, stage, prod roles without re-authenticating
 
     # ---------- 3. KUBERNETES TOOLING ----------
     k8s_brew_formulae:
@@ -109,16 +111,16 @@
       # - cilium-cli #only install if running cilium in cluster - cli for cilium network policies and troubleshooting
       # - hubble #cilium's observability tool - only install if running cilium in cluster
       - kyverno
-      # - trivy # security scanner for k8s clusters and container images - mirrors my Fedora setup with kube-bench and kube-hunter, but trivy is more user-friendly and has a brew formula
+      # - trivy # security scanner for k8s clusters and container images - mirrors my Fedora setup with kube-bench and kube-hunter
       - kube-linter # static analysis tool for Kubernetes YAML files - checks for security issues, best practices, and potential misconfigurations
-      - popeye # another Kubernetes cluster sanitizer and linter - provides a different set of checks and a more opinionated output compared to kube-linter, can be used together for comprehensive analysis
-      - dive # container image explorer with layer analysis and vulnerability scanning - good for debugging and optimizing Dockerfiles, similar to trivy but with a focus on image layers and size optimization
-      - skopeo # tool for inspecting/managing container images in remote registries - useful for contents and metadata without pulling the entire image, can also copy images between registries
-      - cosign # tool for signing and verifying container images - helps ensure the integrity and provenance of images, can sign images with private key & verify signatures with public key
-      - sops # tool for encrypting and decrypting files, often used for managing secrets in Kubernetes - can encrypt YAML files containing sensitive data and decrypt them at runtime, integrates well with GitOps
-      - age # simple file encryption tool - can be used for encrypting any files, including Kubernetes secrets or sensitive configuration files, designed to be a more user-friendly alternative to GPG
-      - velero # backup restore tool for Kubernetes clusters - can back up entire clusters or specific namespaces, including persistent volumes, and restore them to the same or different clusters, useful for disaster recovery and migration
-      - datadog-ci # datadog cli for monitoring and observability - can be used to manage Datadog resources, send custom metrics, and interact with the Datadog API from the command line
+      - popeye # another Kubernetes cluster sanitizer and linter
+      - dive # container image explorer with layer analysis and vulnerability scanning
+      - skopeo # tool for inspecting/managing container images in remote registries - useful for contents and metadata
+      - cosign # tool for signing and verifying container images - helps ensure the integrity and provenance of images
+      - sops # tool for encrypting and decrypting files, use for managing secrets in K8s - can encrypt YAML files containing sensitive data and decrypt them at runtime
+      - age # simple file encryption tool - can be used for encrypting any files
+      - velero # backup restore tool for Kubernetes clusters - can back up entire clusters or specific namespaces
+      - datadog-ci # datadog cli for monitoring and observability
 
     k8s_brew_casks:
       - lens # k8s ide - slow but someimes helpful.
